@@ -98,7 +98,7 @@ local function SpawnLockerProps()
                 propCoords = vector3(centerX, centerY, centerZ),
                 textCoords = vector3(centerX, centerY, centerZ + 1.0),
                 distance = location.distance or 2.0,
-                label = location.label or 'Press ~eb~E~s~ to open locker',
+                label = 'Press ~eb~E~s~ to open locker',
                 isVirtual = true
             }
             
@@ -138,7 +138,7 @@ local function SpawnLockerProps()
             propCoords = vector3(centerX, centerY, centerZ),
             textCoords = vector3(centerX, centerY, centerZ + 1.2),
             distance = location.distance or 2.0,
-            label = location.label or 'Press ~g~E~s~ to open locker',
+            label = 'Press ~eb~E~s~ to open locker',
             propHash = propHash,
             heading = propHeading
         }
