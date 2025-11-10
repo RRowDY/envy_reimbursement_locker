@@ -1,4 +1,4 @@
-ESX = exports['es_extended']:getSharedObject()
+local ESX = nil
 
 local PROP_SPAWN_TIMEOUT = 10000
 local MODEL_LOAD_TIMEOUT = 5000
@@ -11,6 +11,7 @@ local RESPAWN_CHECK_INTERVAL = 2000
 
 local lockerProps = {}
 local lockerData = {}
+local lockerBlips = {}
 local isNUIReady = false
 local lockerUIVisible = false
 local adminUIOpen = false
@@ -65,8 +66,18 @@ local function ShowNUIText(coords, text, distance, maxDistance)
 end
 
 local function SpawnLockerProps()
-    if not Config or not Config.LockerLocations or not ESX then
+    if not Config or not Config.LockerLocations then
         return
+    end
+    
+    -- Try to get ESX if not already loaded
+    if not ESX then
+        local success, result = pcall(function()
+            return exports['es_extended']:getSharedObject()
+        end)
+        if success and result then
+            ESX = result
+        end
     end
     
     local playerPed = PlayerPedId()
@@ -88,6 +99,17 @@ local function SpawnLockerProps()
         if not location.coords then
             goto continue
         end
+        
+        -- Create blip for this location
+        local blip = AddBlipForCoord(location.coords.x, location.coords.y, location.coords.z)
+        SetBlipSprite(blip, 568)
+        SetBlipColour(blip, 2) -- Green color
+        SetBlipScale(blip, 0.8)
+        SetBlipAsShortRange(blip, true)
+        BeginTextCommandSetBlipName("STRING")
+        AddTextComponentString("Reimbursement Locker")
+        EndTextCommandSetBlipName(blip)
+        table.insert(lockerBlips, blip)
         
         if location.virtual or not location.prop then
             local centerX, centerY, centerZ = location.coords.x, location.coords.y, location.coords.z
@@ -212,14 +234,38 @@ CreateThread(function()
     while not Config or not Config.LockerLocations do
         Wait(100)
     end
+    
+    -- Wait for ESX to be available
     while not ESX do
+        local success, result = pcall(function()
+            return exports['es_extended']:getSharedObject()
+        end)
+        if success and result then
+            ESX = result
+        else
+            Wait(100)
+        end
+    end
+    
+    -- Wait for player to be ready
+    while not DoesEntityExist(PlayerPedId()) do
         Wait(100)
     end
+    
     Wait(2000)
     SpawnLockerProps()
 end)
 
 AddEventHandler('playerSpawned', function()
+    if not ESX then
+        local success, result = pcall(function()
+            return exports['es_extended']:getSharedObject()
+        end)
+        if success and result then
+            ESX = result
+        end
+    end
+    
     Wait(2000)
     if #lockerProps == 0 then
         SpawnLockerProps()
@@ -227,6 +273,15 @@ AddEventHandler('playerSpawned', function()
 end)
 
 RegisterNetEvent('esx:playerLoaded', function()
+    if not ESX then
+        local success, result = pcall(function()
+            return exports['es_extended']:getSharedObject()
+        end)
+        if success and result then
+            ESX = result
+        end
+    end
+    
     Wait(2000)
     if #lockerProps == 0 then
         SpawnLockerProps()
@@ -544,7 +599,14 @@ AddEventHandler('onResourceStop', function(resource)
             end
         end
         
+        for i, blip in ipairs(lockerBlips) do
+            if DoesBlipExist(blip) then
+                RemoveBlip(blip)
+            end
+        end
+        
         lockerProps = {}
         lockerData = {}
+        lockerBlips = {}
     end
 end)
