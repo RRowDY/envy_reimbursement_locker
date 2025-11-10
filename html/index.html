@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reimbursement Locker UI</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+    <div id="locker-ui" class="locker-ui hidden">
+        <div class="locker-container">
+            <div class="locker-box">
+                <div class="locker-accent-top"></div>
+                <div class="locker-content">
+                    <div class="locker-text" id="locker-text"></div>
+                </div>
+                <div class="locker-accent-bottom"></div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="admin-ui" class="admin-ui hidden">
+        <div class="admin-container">
+            <div class="admin-header">
+                <h2 class="admin-title">Reimbursement Locker</h2>
+                <button class="admin-close" id="close-btn">×</button>
+            </div>
+            
+            <div class="admin-content">
+                <div class="search-section">
+                    <label class="input-label">Enter License Identifier</label>
+                    <div class="input-group">
+                        <input type="text" id="license-input" class="input-field" placeholder="license:xxxxx" autocomplete="off">
+                        <button class="btn-primary" id="search-btn">Search</button>
+                    </div>
+                </div>
+                
+                <div class="loading hidden" id="loading">
+                    <div class="spinner"></div>
+                    <span>Loading characters...</span>
+                </div>
+                
+                <div class="error-message hidden" id="error-message"></div>
+                
+                <div class="characters-list hidden" id="characters-list">
+                    <h3 class="characters-title">Select Character</h3>
+                    <div class="characters-grid" id="characters-grid"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="script.js"></script>
+    <script src="admin.js"></script>
+</body>
+</html>
+
