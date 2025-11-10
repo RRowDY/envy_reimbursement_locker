@@ -70,7 +70,6 @@ local function SpawnLockerProps()
         return
     end
     
-    -- Try to get ESX if not already loaded
     if not ESX then
         local success, result = pcall(function()
             return exports['es_extended']:getSharedObject()
@@ -100,10 +99,9 @@ local function SpawnLockerProps()
             goto continue
         end
         
-        -- Create blip for this location
         local blip = AddBlipForCoord(location.coords.x, location.coords.y, location.coords.z)
         SetBlipSprite(blip, 568)
-        SetBlipColour(blip, 2) -- Green color
+        SetBlipColour(blip, 2)
         SetBlipScale(blip, 0.8)
         SetBlipAsShortRange(blip, true)
         BeginTextCommandSetBlipName("STRING")
@@ -235,7 +233,6 @@ CreateThread(function()
         Wait(100)
     end
     
-    -- Wait for ESX to be available
     while not ESX do
         local success, result = pcall(function()
             return exports['es_extended']:getSharedObject()
@@ -247,7 +244,6 @@ CreateThread(function()
         end
     end
     
-    -- Wait for player to be ready
     while not DoesEntityExist(PlayerPedId()) do
         Wait(100)
     end
