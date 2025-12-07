@@ -41,6 +41,10 @@ local function LogAdminAction(source, action, details)
 end
 
 local function LogSecurityEvent(source, event, details)
+    if not Config.LogSecurityEvents then
+        return
+    end
+    
     local xPlayer = ESX.GetPlayerFromId(source)
     local identifier = xPlayer and xPlayer.identifier or 'Unknown'
     

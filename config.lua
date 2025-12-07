@@ -14,6 +14,8 @@ Config.AllowedGroups = {
     ['owner'] = true
 }
 
+Config.LogSecurityEvents = false
+
 Config.LockerLocations = {
     {
         coords = vector3(-269.87, -954.18, 30.22), -- Apartments
