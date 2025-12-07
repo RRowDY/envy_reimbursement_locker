@@ -9,79 +9,21 @@ local CACHE_TTL = 300
 
 local lastInteractionTime = {}
 local adminCallbackTimes = {}
-local rateLimitCleanupRunning = false
+local characterCache = {}
+local cacheTimestamps = {}
 
-local function CleanupRateLimits()
-    if rateLimitCleanupRunning then return end
-    rateLimitCleanupRunning = true
-    
-    CreateThread(function()
-        while true do
-            Wait(RATE_LIMIT_CLEANUP_INTERVAL)
-            local currentTime = os.time()
-            local cleaned = 0
-            
-            for source, time in pairs(lastInteractionTime) do
-                if currentTime - time > 300 then
-                    lastInteractionTime[source] = nil
-                    cleaned = cleaned + 1
-                end
-            end
-            
-            for source, time in pairs(adminCallbackTimes) do
-                if currentTime - time > 300 then
-                    adminCallbackTimes[source] = nil
-                end
-            end
-            
-            if cleaned > 0 then
-                print(string.format("^2[envy_reimbursement_locker]^7 Cleaned up ^5%d^7 rate limit entries", cleaned))
-            end
-        end
-    end)
-end
-
-CleanupRateLimits()
-
-local function ValidateInput(input, maxLength, inputType)
-    if not input or type(input) ~= 'string' then
-        return false, string.format('Invalid %s type', inputType)
+local function ValidateInput(input, maxLength)
+    if type(input) ~= 'string' or #input == 0 or #input > maxLength then
+        return false
     end
-    
-    if #input == 0 or #input > maxLength then
-        return false, string.format('Invalid %s length', inputType)
-    end
-    
-    local pattern = '^[%w:]+$'
-    if not string.match(input, pattern) then
-        return false, string.format('Invalid %s format', inputType)
-    end
-    
-    return true, nil
-end
-
-local function ValidateLicense(license)
-    return ValidateInput(license, MAX_LICENSE_LENGTH, 'license')
-end
-
-local function ValidateIdentifier(identifier)
-    return ValidateInput(identifier, MAX_IDENTIFIER_LENGTH, 'identifier')
+    return string.match(input, '^[%w:]+$') ~= nil
 end
 
 local function SanitizeLicense(license)
-    local baseLicense = license
-    if string.find(license, ':') then
-        local match = string.match(license, ':([%w]+)$')
-        if match then
-            baseLicense = match
-        end
-    end
-    
-    baseLicense = string.match(baseLicense, '^([%w]+)$')
+    local baseLicense = string.match(license, ':([%w]+)$')
     if not baseLicense then
-        return nil
+        baseLicense = string.match(license, '^([%w]+)$')
     end
-    
     return baseLicense
 end
 
@@ -89,68 +31,46 @@ local function LogAdminAction(source, action, details)
     local xPlayer = ESX.GetPlayerFromId(source)
     if not xPlayer then return end
     
-    local logMessage = string.format(
+    print(string.format(
         "^3[envy_reimbursement_locker]^7 Admin Action: ^5%s^7 (%s) - %s - %s",
         xPlayer.getName(),
         xPlayer.identifier,
         action,
         details or 'N/A'
-    )
-    
-    print(logMessage)
+    ))
 end
 
 local function LogSecurityEvent(source, event, details)
     local xPlayer = ESX.GetPlayerFromId(source)
     local identifier = xPlayer and xPlayer.identifier or 'Unknown'
     
-    local logMessage = string.format(
+    print(string.format(
         "^1[envy_reimbursement_locker]^7 Security Event: Player ^5%s^7 (%s) - %s - %s",
         source,
         identifier,
         event,
         details or 'N/A'
-    )
-    
-    print(logMessage)
+    ))
 end
 
 local function IsPlayerStaff(source)
-    if not source or type(source) ~= 'number' then
-        return false
-    end
+    if type(source) ~= 'number' then return false end
     
     local xPlayer = ESX.GetPlayerFromId(source)
-    if not xPlayer then
-        return false
-    end
+    if not xPlayer then return false end
     
     local group = xPlayer.getGroup()
-    if not group or type(group) ~= 'string' then
-        return false
-    end
-    
-    return Config.AllowedGroups[group] == true
+    return type(group) == 'string' and Config.AllowedGroups[group] == true
 end
 
 local function IsPlayerNearLocker(source)
-    if not source or type(source) ~= 'number' then
-        return false
-    end
+    if type(source) ~= 'number' then return false end
     
     local playerPed = GetPlayerPed(source)
-    if not playerPed or playerPed == 0 then
-        return false
-    end
+    if not playerPed or playerPed == 0 then return false end
     
     local playerCoords = GetEntityCoords(playerPed)
-    if not playerCoords then
-        return false
-    end
-    
-    if playerCoords.x ~= playerCoords.x or playerCoords.y ~= playerCoords.y or playerCoords.z ~= playerCoords.z then
-        return false
-    end
+    if not playerCoords then return false end
     
     local nearestDistance = math.huge
     local foundLocation = false
@@ -186,13 +106,9 @@ local function RegisterAndOpenStash(source, stashId, stashLabel)
     return openSuccess, openSuccess and nil or 'Failed to open stash'
 end
 
-local characterCache = {}
-local cacheTimestamps = {}
-
 local function GetCachedCharacters(license)
-    local cacheKey = license
-    local cached = characterCache[cacheKey]
-    local timestamp = cacheTimestamps[cacheKey]
+    local cached = characterCache[license]
+    local timestamp = cacheTimestamps[license]
     
     if cached and timestamp and (os.time() - timestamp) < CACHE_TTL then
         return cached
@@ -202,25 +118,38 @@ local function GetCachedCharacters(license)
 end
 
 local function SetCachedCharacters(license, characters)
-    local cacheKey = license
-    characterCache[cacheKey] = characters
-    cacheTimestamps[cacheKey] = os.time()
-end
-
-local function ClearCache()
-    characterCache = {}
-    cacheTimestamps = {}
+    characterCache[license] = characters
+    cacheTimestamps[license] = os.time()
 end
 
 CreateThread(function()
     while true do
-        Wait(60000)
+        Wait(RATE_LIMIT_CLEANUP_INTERVAL)
         local currentTime = os.time()
+        local cleaned = 0
+        
+        for source, time in pairs(lastInteractionTime) do
+            if currentTime - time > 300 then
+                lastInteractionTime[source] = nil
+                cleaned = cleaned + 1
+            end
+        end
+        
+        for source, time in pairs(adminCallbackTimes) do
+            if currentTime - time > 300 then
+                adminCallbackTimes[source] = nil
+            end
+        end
+        
         for key, timestamp in pairs(cacheTimestamps) do
             if currentTime - timestamp >= CACHE_TTL then
                 characterCache[key] = nil
                 cacheTimestamps[key] = nil
             end
+        end
+        
+        if cleaned > 0 then
+            print(string.format("^2[envy_reimbursement_locker]^7 Cleaned up ^5%d^7 rate limit entries", cleaned))
         end
     end
 end)
@@ -240,15 +169,8 @@ ESX.RegisterServerCallback('envy_reimbursement_locker:getCharactersByLicense', f
     end
     adminCallbackTimes[source] = currentTime
     
-    if not license or type(license) ~= 'string' then
-        LogSecurityEvent(source, 'INVALID_INPUT', 'License is not a string')
-        cb({ error = 'Invalid license identifier' })
-        return
-    end
-    
-    local isValid, errorMsg = ValidateLicense(license)
-    if not isValid then
-        LogSecurityEvent(source, 'INVALID_INPUT', string.format('License validation failed: %s', errorMsg))
+    if not ValidateInput(license, MAX_LICENSE_LENGTH) then
+        LogSecurityEvent(source, 'INVALID_INPUT', 'License validation failed')
         cb({ error = 'Invalid license identifier' })
         return
     end
@@ -266,44 +188,30 @@ ESX.RegisterServerCallback('envy_reimbursement_locker:getCharactersByLicense', f
         return
     end
     
-    local pattern = '%:' .. baseLicense
-    
     MySQL.query(
         'SELECT identifier, firstname, lastname, dateofbirth, job FROM users WHERE identifier LIKE ? ORDER BY identifier LIMIT 50',
-        { pattern },
+        { '%:' .. baseLicense },
         function(result)
-            if not result then
-                cb({ error = 'Database query failed' })
-                return
-            end
-            
-            if #result == 0 then
+            if not result or #result == 0 then
                 cb({ error = 'No characters found for this license.' })
                 return
-            end
-            
-            if #result > 50 then
-                result = { table.unpack(result, 1, 50) }
             end
             
             local characters = {}
             for i = 1, #result do
                 local char = result[i]
                 
-                if char and char.identifier then
-                    local isValidId, _ = ValidateIdentifier(char.identifier)
-                    if isValidId then
-                        local targetPlayer = ESX.GetPlayerFromIdentifier(char.identifier)
-                        
-                        table.insert(characters, {
-                            identifier = char.identifier,
-                            firstname = char.firstname or 'Unknown',
-                            lastname = char.lastname or 'Unknown',
-                            dateofbirth = char.dateofbirth or 'N/A',
-                            job = char.job or 'Unemployed',
-                            online = targetPlayer ~= nil
-                        })
-                    end
+                if char and char.identifier and ValidateInput(char.identifier, MAX_IDENTIFIER_LENGTH) then
+                    local targetPlayer = ESX.GetPlayerFromIdentifier(char.identifier)
+                    
+                    table.insert(characters, {
+                        identifier = char.identifier,
+                        firstname = char.firstname or 'Unknown',
+                        lastname = char.lastname or 'Unknown',
+                        dateofbirth = char.dateofbirth or 'N/A',
+                        job = char.job or 'Unemployed',
+                        online = targetPlayer ~= nil
+                    })
                 end
             end
             
@@ -313,9 +221,7 @@ ESX.RegisterServerCallback('envy_reimbursement_locker:getCharactersByLicense', f
             end
             
             SetCachedCharacters(license, characters)
-            
             LogAdminAction(source, 'SEARCH_CHARACTERS', string.format('License: %s, Found: %d characters', license, #characters))
-            
             cb({ characters = characters })
         end,
         function(err)
@@ -340,15 +246,8 @@ ESX.RegisterServerCallback('envy_reimbursement_locker:openStashForCharacter', fu
     end
     adminCallbackTimes[source] = currentTime
     
-    if not characterIdentifier or type(characterIdentifier) ~= 'string' then
-        LogSecurityEvent(source, 'INVALID_INPUT', 'Character identifier is not a string')
-        cb({ success = false, error = 'Invalid character identifier' })
-        return
-    end
-    
-    local isValid, errorMsg = ValidateIdentifier(characterIdentifier)
-    if not isValid then
-        LogSecurityEvent(source, 'INVALID_INPUT', string.format('Identifier validation failed: %s', errorMsg))
+    if not ValidateInput(characterIdentifier, MAX_IDENTIFIER_LENGTH) then
+        LogSecurityEvent(source, 'INVALID_INPUT', 'Identifier validation failed')
         cb({ success = false, error = 'Invalid character identifier' })
         return
     end
@@ -357,18 +256,7 @@ ESX.RegisterServerCallback('envy_reimbursement_locker:openStashForCharacter', fu
     local playerName = targetPlayer and targetPlayer.getName() or characterIdentifier
     
     local stashId = Config.Stash.IdPrefix .. characterIdentifier
-    
-    if #stashId > 128 then
-        cb({ success = false, error = 'Stash ID too long' })
-        return
-    end
-    
     local stashLabel = string.format(Config.Stash.LabelFormat, characterIdentifier)
-    
-    if #stashLabel > 128 then
-        cb({ success = false, error = 'Stash label too long' })
-        return
-    end
     
     local openSuccess, errorMsg = RegisterAndOpenStash(source, stashId, stashLabel)
     
@@ -410,9 +298,9 @@ RegisterNetEvent('envy_reimbursement_locker:openLocker', function()
         return
     end
     
-    local isNear, distance = IsPlayerNearLocker(source)
+    local isNear = IsPlayerNearLocker(source)
     if not isNear then
-        LogSecurityEvent(source, 'DISTANCE_VIOLATION', string.format('Distance: %s', tostring(distance)))
+        LogSecurityEvent(source, 'DISTANCE_VIOLATION', 'Player not near locker')
         return
     end
     
@@ -494,6 +382,7 @@ end)
 
 AddEventHandler('onResourceStop', function(resource)
     if resource == GetCurrentResourceName() then
-        ClearCache()
+        characterCache = {}
+        cacheTimestamps = {}
     end
 end)
