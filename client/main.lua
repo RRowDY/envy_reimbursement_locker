@@ -16,6 +16,21 @@ local isNUIReady = false
 local lockerUIVisible = false
 local adminUIOpen = false
 local lastInteractionTime = 0
+local propsSpawned = false
+
+local function InitializeESX()
+    if ESX then return ESX end
+    
+    local success, result = pcall(function()
+        return exports['es_extended']:getSharedObject()
+    end)
+    
+    if success and result then
+        ESX = result
+    end
+    
+    return ESX
+end
 
 local function WorldToScreen(coords)
     if not coords then return false, 0, 0 end
@@ -65,19 +80,73 @@ local function ShowNUIText(coords, text, distance, maxDistance)
     end
 end
 
-local function SpawnLockerProps()
-    if not Config or not Config.LockerLocations then
-        return
+local function CreateProp(propHash, coords, heading)
+    RequestModel(propHash)
+    
+    local timeout = 0
+    while not HasModelLoaded(propHash) and timeout < MODEL_LOAD_TIMEOUT do
+        Wait(10)
+        timeout = timeout + 10
     end
     
-    if not ESX then
-        local success, result = pcall(function()
-            return exports['es_extended']:getSharedObject()
-        end)
-        if success and result then
-            ESX = result
+    if not HasModelLoaded(propHash) then
+        return nil
+    end
+    
+    local playerPed = PlayerPedId()
+    local playerCoords = GetEntityCoords(playerPed)
+    local distanceToLocation = #(playerCoords - coords)
+    
+    RequestCollisionAtCoord(coords.x, coords.y, coords.z)
+    if distanceToLocation < 500.0 then
+        local collisionTimeout = 0
+        while not HasCollisionLoadedAroundEntity(playerPed) and collisionTimeout < 2000 do
+            Wait(10)
+            collisionTimeout = collisionTimeout + 10
+            RequestCollisionAtCoord(coords.x, coords.y, coords.z)
+        end
+    else
+        Wait(500)
+    end
+    
+    local prop = CreateObject(propHash, coords.x, coords.y, coords.z, false, true, false)
+    Wait(200)
+    
+    if prop and prop ~= 0 then
+        local attempts = 0
+        while not DoesEntityExist(prop) and attempts < 10 do
+            Wait(50)
+            attempts = attempts + 1
+            if not DoesEntityExist(prop) then
+                prop = CreateObject(propHash, coords.x, coords.y, coords.z, false, true, false)
+            end
+        end
+        
+        if DoesEntityExist(prop) then
+            SetEntityCoordsNoOffset(prop, coords.x, coords.y, coords.z, false, false, false)
+            Wait(50)
+            SetEntityHeading(prop, heading)
+            Wait(50)
+            FreezeEntityPosition(prop, true)
+            SetEntityAsMissionEntity(prop, true, true)
+            SetEntityCanBeDamaged(prop, false)
+            SetEntityInvincible(prop, true)
+            SetEntityLodDist(prop, PROP_LOD_DISTANCE)
+            SetEntityCollision(prop, true, true)
+            SetEntityAlpha(prop, 255, false)
+            return prop
         end
     end
+    
+    SetModelAsNoLongerNeeded(propHash)
+    return nil
+end
+
+local function SpawnLockerProps()
+    if not Config or not Config.LockerLocations then return end
+    if propsSpawned then return end
+    
+    InitializeESX()
     
     local playerPed = PlayerPedId()
     local timeout = 0
@@ -88,16 +157,12 @@ local function SpawnLockerProps()
         playerPed = PlayerPedId()
     end
     
-    if not DoesEntityExist(playerPed) then
-        return
-    end
+    if not DoesEntityExist(playerPed) then return end
     
     Wait(1000)
     
     for i, location in ipairs(Config.LockerLocations) do
-        if not location.coords then
-            goto continue
-        end
+        if not location.coords then goto continue end
         
         local blip = AddBlipForCoord(location.coords.x, location.coords.y, location.coords.z)
         SetBlipSprite(blip, 568)
@@ -110,13 +175,11 @@ local function SpawnLockerProps()
         table.insert(lockerBlips, blip)
         
         if location.virtual or not location.prop then
-            local centerX, centerY, centerZ = location.coords.x, location.coords.y, location.coords.z
-            
             local locationKey = "location_" .. i
             
             lockerData[locationKey] = {
-                propCoords = vector3(centerX, centerY, centerZ),
-                textCoords = vector3(centerX, centerY, centerZ + 1.0),
+                propCoords = location.coords,
+                textCoords = vector3(location.coords.x, location.coords.y, location.coords.z + 1.0),
                 distance = location.distance or 2.0,
                 label = 'Press ~eb~E~s~ to open locker',
                 isVirtual = true
@@ -128,21 +191,7 @@ local function SpawnLockerProps()
         
         local propHash = type(location.prop) == 'string' and GetHashKey(location.prop) or location.prop
         
-        if not propHash or propHash == 0 then
-            goto continue
-        end
-        
-        RequestModel(propHash)
-        
-        timeout = 0
-        while not HasModelLoaded(propHash) and timeout < MODEL_LOAD_TIMEOUT do
-            Wait(10)
-            timeout = timeout + 10
-        end
-        
-        if not HasModelLoaded(propHash) then
-            goto continue
-        end
+        if not propHash or propHash == 0 then goto continue end
         
         local minCoords = vector3(0.0, 0.0, 0.0)
         local maxCoords = vector3(0.0, 0.0, 0.0)
@@ -154,71 +203,33 @@ local function SpawnLockerProps()
         local headingOffset = location.headingOffset or 0.0
         local propHeading = (baseHeading + headingOffset) % 360.0
         
-        local propData = {
-            propCoords = vector3(centerX, centerY, centerZ),
-            textCoords = vector3(centerX, centerY, centerZ + 1.2),
-            distance = location.distance or 2.0,
-            label = 'Press ~eb~E~s~ to open locker',
-            propHash = propHash,
-            heading = propHeading
-        }
+        local propCoords = vector3(centerX, centerY, centerZ)
+        local prop = CreateProp(propHash, propCoords, propHeading)
         
-        local playerPed = PlayerPedId()
-        local playerCoords = GetEntityCoords(playerPed)
-        local distanceToLocation = #(playerCoords - vector3(centerX, centerY, centerZ))
-        
-        RequestCollisionAtCoord(centerX, centerY, centerZ)
-        if distanceToLocation < 500.0 then
-            local collisionTimeout = 0
-            while not HasCollisionLoadedAroundEntity(playerPed) and collisionTimeout < 2000 do
-                Wait(10)
-                collisionTimeout = collisionTimeout + 10
-                RequestCollisionAtCoord(centerX, centerY, centerZ)
-            end
-        else
-            Wait(500)
-        end
-        
-        local prop = CreateObject(propHash, centerX, centerY, centerZ, false, true, false)
-        Wait(200)
-        
-        if prop and prop ~= 0 then
-            local attempts = 0
-            while not DoesEntityExist(prop) and attempts < 10 do
-                Wait(50)
-                attempts = attempts + 1
-                if not DoesEntityExist(prop) then
-                    prop = CreateObject(propHash, centerX, centerY, centerZ, false, true, false)
-                end
-            end
+        if prop then
+            local propData = {
+                propCoords = propCoords,
+                textCoords = vector3(centerX, centerY, centerZ + 1.2),
+                distance = location.distance or 2.0,
+                label = 'Press ~eb~E~s~ to open locker',
+                propHash = propHash,
+                heading = propHeading
+            }
             
-            if DoesEntityExist(prop) then
-                SetEntityCoordsNoOffset(prop, centerX, centerY, centerZ, false, false, false)
-                Wait(50)
-                SetEntityHeading(prop, propHeading)
-                Wait(50)
-                FreezeEntityPosition(prop, true)
-                SetEntityAsMissionEntity(prop, true, true)
-                SetEntityCanBeDamaged(prop, false)
-                SetEntityInvincible(prop, true)
-                SetEntityLodDist(prop, PROP_LOD_DISTANCE)
-                SetEntityCollision(prop, true, true)
-                SetEntityAlpha(prop, 255, false)
-                
-                table.insert(lockerProps, prop)
-                lockerData[prop] = propData
-            else
-                local locationKey = "location_" .. i .. "_failed"
-                lockerData[locationKey] = propData
-                table.insert(lockerProps, locationKey)
-            end
+            table.insert(lockerProps, prop)
+            lockerData[prop] = propData
         else
             local locationKey = "location_" .. i .. "_failed"
-            lockerData[locationKey] = propData
+            lockerData[locationKey] = {
+                propCoords = propCoords,
+                textCoords = vector3(centerX, centerY, centerZ + 1.2),
+                distance = location.distance or 2.0,
+                label = 'Press ~eb~E~s~ to open locker',
+                propHash = propHash,
+                heading = propHeading
+            }
             table.insert(lockerProps, locationKey)
         end
-        
-        SetModelAsNoLongerNeeded(propHash)
         
         ::continue::
     end
@@ -226,62 +237,29 @@ local function SpawnLockerProps()
     Wait(500)
     SetNuiFocus(false, false)
     isNUIReady = true
+    propsSpawned = true
 end
 
-CreateThread(function()
-    while not Config or not Config.LockerLocations do
-        Wait(100)
-    end
-    
-    while not ESX do
-        local success, result = pcall(function()
-            return exports['es_extended']:getSharedObject()
-        end)
-        if success and result then
-            ESX = result
-        else
-            Wait(100)
-        end
-    end
-    
-    while not DoesEntityExist(PlayerPedId()) do
-        Wait(100)
-    end
+local function TrySpawnProps()
+    if propsSpawned then return true end
+    if not Config or not Config.LockerLocations then return false end
+    if not InitializeESX() then return false end
+    if not DoesEntityExist(PlayerPedId()) then return false end
     
     Wait(2000)
     SpawnLockerProps()
-end)
+    return true
+end
 
-AddEventHandler('playerSpawned', function()
-    if not ESX then
-        local success, result = pcall(function()
-            return exports['es_extended']:getSharedObject()
-        end)
-        if success and result then
-            ESX = result
-        end
-    end
-    
-    Wait(2000)
-    if #lockerProps == 0 then
-        SpawnLockerProps()
+CreateThread(function()
+    if not TrySpawnProps() then
+        Wait(3000)
+        TrySpawnProps()
     end
 end)
 
 RegisterNetEvent('esx:playerLoaded', function()
-    if not ESX then
-        local success, result = pcall(function()
-            return exports['es_extended']:getSharedObject()
-        end)
-        if success and result then
-            ESX = result
-        end
-    end
-    
-    Wait(2000)
-    if #lockerProps == 0 then
-        SpawnLockerProps()
-    end
+    TrySpawnProps()
 end)
 
 CreateThread(function()
@@ -300,7 +278,6 @@ CreateThread(function()
                 local nearProp = nil
                 local nearestDistance = math.huge
                 local propsToRespawn = {}
-                local nearFailedSpawns = {}
                 
                 for prop, data in pairs(lockerData) do
                     local isValid = false
@@ -316,10 +293,8 @@ CreateThread(function()
                             local distance = #(playerCoords - data.propCoords)
                             local maxCheckDistance = (data.distance or 2.0) * MAX_CHECK_DISTANCE_MULTIPLIER * 3
                             
-                            if distance < maxCheckDistance then
-                                table.insert(nearFailedSpawns, { prop = prop, data = data, distance = distance })
-                            elseif shouldCheckRespawn then
-                                table.insert(propsToRespawn, { prop = prop, data = data })
+                            if distance < maxCheckDistance and shouldCheckRespawn then
+                                table.insert(propsToRespawn, { prop = prop, data = data, distance = distance })
                             end
                         end
                     end
@@ -340,92 +315,33 @@ CreateThread(function()
                     end
                 end
                 
-                if #nearFailedSpawns > 0 then
-                    for _, spawnInfo in ipairs(nearFailedSpawns) do
-                        table.insert(propsToRespawn, { prop = spawnInfo.prop, data = spawnInfo.data })
-                    end
-                end
-                
                 if #propsToRespawn > 0 then
                     lastRespawnCheck = currentTime
                     
                     for i, respawnInfo in ipairs(propsToRespawn) do
-                        if i > 1 then
-                            Wait(50)
-                        end
+                        if i > 1 then Wait(50) end
                         
                         local oldProp = respawnInfo.prop
                         local data = respawnInfo.data
                         local propHash = data.propHash
                         
-                        RequestModel(propHash)
-                        local timeout = 0
-                        while not HasModelLoaded(propHash) and timeout < MODEL_LOAD_TIMEOUT do
-                            Wait(10)
-                            timeout = timeout + 10
-                        end
+                        local newProp = CreateProp(propHash, data.propCoords, data.heading)
                         
-                        if HasModelLoaded(propHash) then
-                            local centerX, centerY, centerZ = data.propCoords.x, data.propCoords.y, data.propCoords.z
-                            local playerPed = PlayerPedId()
-                            local playerCoords = GetEntityCoords(playerPed)
-                            local distanceToLocation = #(playerCoords - vector3(centerX, centerY, centerZ))
+                        if newProp then
+                            lockerData[newProp] = data
                             
-                            RequestCollisionAtCoord(centerX, centerY, centerZ)
-                            if distanceToLocation < 500.0 then
-                                local collisionTimeout = 0
-                                while not HasCollisionLoadedAroundEntity(playerPed) and collisionTimeout < 2000 do
-                                    Wait(10)
-                                    collisionTimeout = collisionTimeout + 10
-                                    RequestCollisionAtCoord(centerX, centerY, centerZ)
-                                end
-                            else
-                                Wait(500)
-                            end
-                            
-                            local newProp = CreateObject(propHash, centerX, centerY, centerZ, false, true, false)
-                            Wait(200)
-                            
-                            if newProp and newProp ~= 0 then
-                                local attempts = 0
-                                while not DoesEntityExist(newProp) and attempts < 10 do
-                                    Wait(50)
-                                    attempts = attempts + 1
-                                    if not DoesEntityExist(newProp) then
-                                        newProp = CreateObject(propHash, centerX, centerY, centerZ, false, true, false)
-                                    end
-                                end
-                                
-                                if DoesEntityExist(newProp) then
-                                    SetEntityCoordsNoOffset(newProp, centerX, centerY, centerZ, false, false, false)
-                                    Wait(50)
-                                    SetEntityHeading(newProp, data.heading)
-                                    Wait(50)
-                                    FreezeEntityPosition(newProp, true)
-                                    SetEntityAsMissionEntity(newProp, true, true)
-                                    SetEntityCanBeDamaged(newProp, false)
-                                    SetEntityInvincible(newProp, true)
-                                    SetEntityLodDist(newProp, PROP_LOD_DISTANCE)
-                                    SetEntityCollision(newProp, true, true)
-                                    SetEntityAlpha(newProp, 255, false)
-                                    
-                                    lockerData[newProp] = data
-                                    
-                                    for j, p in ipairs(lockerProps) do
-                                        if p == oldProp then
-                                            lockerProps[j] = newProp
-                                            break
-                                        end
-                                    end
-                                    
-                                    if nearProp == oldProp then
-                                        nearProp = newProp
-                                    end
-                                    
-                                    lockerData[oldProp] = nil
+                            for j, p in ipairs(lockerProps) do
+                                if p == oldProp then
+                                    lockerProps[j] = newProp
+                                    break
                                 end
                             end
-                            SetModelAsNoLongerNeeded(propHash)
+                            
+                            if nearProp == oldProp then
+                                nearProp = newProp
+                            end
+                            
+                            lockerData[oldProp] = nil
                         end
                     end
                 end
@@ -460,9 +376,7 @@ RegisterNetEvent('envy_reimbursement_locker:playAnimation', function()
         local animName = 'givetake1_a'
         local ped = PlayerPedId()
         
-        if not DoesEntityExist(ped) then
-            return
-        end
+        if not DoesEntityExist(ped) then return end
         
         ClearPedTasksImmediately(ped)
         Wait(100)
@@ -585,12 +499,10 @@ end)
 
 AddEventHandler('onResourceStop', function(resource)
     if resource == GetCurrentResourceName() then
-        SendNUIMessage({
-            action = 'hide'
-        })
+        SendNUIMessage({ action = 'hide' })
         
         for i, prop in ipairs(lockerProps) do
-            if DoesEntityExist(prop) then
+            if type(prop) == 'number' and DoesEntityExist(prop) then
                 DeleteEntity(prop)
             end
         end
@@ -604,5 +516,6 @@ AddEventHandler('onResourceStop', function(resource)
         lockerProps = {}
         lockerData = {}
         lockerBlips = {}
+        propsSpawned = false
     end
 end)
