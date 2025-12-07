@@ -271,10 +271,7 @@ end)
 RegisterCommand(Config.Command, function(source, args, rawCommand)
     if not IsPlayerStaff(source) then
         LogSecurityEvent(source, 'UNAUTHORIZED_COMMAND', Config.Command)
-        TriggerClientEvent('ox_lib:notify', source, {
-            type = 'error',
-            description = 'You do not have permission to use this command.'
-        })
+        TriggerClientEvent('esx:showNotification', source, 'You do not have permission to use this command.', 'error')
         return
     end
     
