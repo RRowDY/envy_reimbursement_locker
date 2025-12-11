@@ -146,6 +146,9 @@ local function SpawnLockerProps()
     if not Config or not Config.LockerLocations then return end
     if propsSpawned then return end
     
+    -- Set flag immediately to prevent duplicate calls
+    propsSpawned = true
+    
     InitializeESX()
     
     local playerPed = PlayerPedId()
@@ -157,7 +160,18 @@ local function SpawnLockerProps()
         playerPed = PlayerPedId()
     end
     
-    if not DoesEntityExist(playerPed) then return end
+    if not DoesEntityExist(playerPed) then 
+        propsSpawned = false
+        return 
+    end
+    
+    -- Clean up any existing blips before creating new ones
+    for i, blip in ipairs(lockerBlips) do
+        if DoesBlipExist(blip) then
+            RemoveBlip(blip)
+        end
+    end
+    lockerBlips = {}
     
     Wait(1000)
     
@@ -237,7 +251,6 @@ local function SpawnLockerProps()
     Wait(500)
     SetNuiFocus(false, false)
     isNUIReady = true
-    propsSpawned = true
 end
 
 local function TrySpawnProps()
